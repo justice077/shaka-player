@@ -123,21 +123,28 @@ module.exports = function(config) {
         browserName: 'safari',
         pseudoActivityInterval: 20000
       },
-
-      WebDriver_ChromeMac: {
-        base: 'WebDriver',
-        config: {hostname: 'localhost', port: 4445},
-        browserName: 'chrome',
-        pseudoActivityInterval: 20000
-      },
       // }}}
 
-      // OS X Yosemite {{{
-      WebDriver_Safari8: {
+      // macOS Sierra {{{
+      WebDriver_Safari10: {
         base: 'WebDriver',
         config: {hostname: 'localhost', port: 4444},
         browserName: 'safari',
         pseudoActivityInterval: 20000
+      },
+
+      WebDriver_ChromeMac: {
+        base: 'WebDriver',
+        config: {hostname: 'localhost', port: 4444},
+        browserName: 'chrome',
+        pseudoActivityInterval: 20000,
+        chromeOptions: {
+          // Instruct chromedriver not to disable component updater. The
+          // component updater must run in order for the Widevine CDM to be
+          // available when using a new user-data-dir.
+          // TODO: remove once http://crbug.com/613581 is fixed.
+          excludeSwitches: ['disable-component-update']
+        }
       },
 
       WebDriver_FirefoxMac: {
@@ -150,23 +157,19 @@ module.exports = function(config) {
       WebDriver_OperaMac: {
         base: 'WebDriver',
         config: {hostname: 'localhost', port: 4444},
-        // This is not obvious, but as of 2016-03-17, operadriver responds to
-        // browserName 'chrome', not 'opera'.  It still launches opera.  This
-        // should be solveable once operachromiumdriver releases sources.
-        // See:
-        //   https://github.com/operasoftware/operachromiumdriver/issues/8
-        //   http://stackoverflow.com/a/27387949
-        browserName: 'chrome',
+        browserName: 'operablink',
         pseudoActivityInterval: 20000
       },
       // }}}
 
-      // Windows {{{
+      // Windows 10 {{{
       WebDriver_IE11: {
         base: 'WebDriver',
         config: {hostname: 'localhost', port: 4446},
         browserName: 'internet explorer',
-        pseudoActivityInterval: 20000
+        pseudoActivityInterval: 20000,
+        ignoreZoomSetting: true,
+        ignoreProtectedModeSettings: true
       },
 
       WebDriver_Edge: {
@@ -180,7 +183,14 @@ module.exports = function(config) {
         base: 'WebDriver',
         config: {hostname: 'localhost', port: 4446},
         browserName: 'chrome',
-        pseudoActivityInterval: 20000
+        pseudoActivityInterval: 20000,
+        chromeOptions: {
+          // Instruct chromedriver not to disable component updater. The
+          // component updater must run in order for the Widevine CDM to be
+          // available when using a new user-data-dir.
+          // TODO: remove once http://crbug.com/613581 is fixed.
+          excludeSwitches: ['disable-component-update']
+        }
       },
 
       WebDriver_FirefoxWin: {
@@ -208,7 +218,7 @@ module.exports = function(config) {
       // }}}
 
       // Android 6.0.1 {{{
-      // Note this is tethered to the Linux machine.
+      // Note: this is tethered to the Linux machine.
       WebDriver_ChromeAndroid: {
         base: 'WebDriver',
         config: {hostname: 'localhost', port: 4447},
@@ -220,6 +230,7 @@ module.exports = function(config) {
     },
 
     coverageReporter: {
+      includeAllSources: true,
       reporters: [
         { type: 'text' },
       ],
@@ -240,6 +251,7 @@ module.exports = function(config) {
       coverageReporter: {
         reporters: [
           { type: 'html', dir: 'coverage' },
+          { type: 'cobertura', dir: 'coverage', file: 'coverage.xml' },
         ],
       },
     });
@@ -272,9 +284,31 @@ module.exports = function(config) {
     setClientArg(config, 'external', true);
   }
 
+  if (flagPresent('quarantined')) {
+    // Run quarantined tests which do not consistently pass.
+    // Skipped by default.
+    setClientArg(config, 'quarantined', true);
+  }
+
   if (flagPresent('uncompiled')) {
     // Run Player integration tests with uncompiled code for debugging.
     setClientArg(config, 'uncompiled', true);
+  }
+
+  if (flagPresent('random')) {
+    // Run tests in a random order.
+    setClientArg(config, 'random', true);
+  }
+
+  if (flagPresent('seed')) {
+    // Use a specific seed to reproduce a specific 'random' order.
+    setClientArg(config, 'seed', getFlagValue('seed'));
+  }
+
+  var hostname = getFlagValue('hostname');
+  if (hostname !== null) {
+    // Point the browsers to a hostname other than localhost.
+    config.set({hostname: hostname});
   }
 };
 

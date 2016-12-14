@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-describe('DashParser.Live', function() {
+describe('DashParser Live', function() {
   var Dash;
   var errorCallback;
   var fakeNetEngine;
@@ -216,8 +216,8 @@ describe('DashParser.Live', function() {
       ].join('\n');
       // Set the period start to the sum of the durations of the references
       // in the previous period.
-      var durs = basicRefs.map(function(r) { return r.endTime - r.startTime });
-      var pStart = durs.reduce(function(p, d) { return p + d}, 0);
+      var durs = basicRefs.map(function(r) { return r.endTime - r.startTime; });
+      var pStart = durs.reduce(function(p, d) { return p + d; }, 0);
       var args = {
         updateTime: updateTime,
         pStart: pStart,

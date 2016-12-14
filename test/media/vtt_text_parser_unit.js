@@ -16,26 +16,27 @@
  */
 
 describe('VttTextParser', function() {
-  var mockCue = false;
+  var logWarningSpy;
+  var originalCueConstructor;
 
   beforeAll(function() {
-    // Mock out VTTCue if not supported.  These tests don't actually need
-    // VTTCue to do anything, this simply verifies the value of its members.
-    if (!window.VTTCue) {
-      mockCue = true;
-      window.VTTCue = function(start, end, text) {
-        this.startTime = start;
-        this.endTime = end;
-        this.text = text;
-      };
-    }
+    originalCueConstructor = shaka.media.TextEngine.CueConstructor;
+
+    logWarningSpy = jasmine.createSpy('shaka.log.warning');
+    shaka.log.warning = logWarningSpy;
   });
 
   afterAll(function() {
-    // Delete our mock.
-    if (mockCue) {
-      delete window.VTTCue;
-    }
+    shaka.media.TextEngine.CueConstructor = originalCueConstructor;
+  });
+
+  beforeEach(function() {
+    logWarningSpy.calls.reset();
+    shaka.media.TextEngine.CueConstructor = function(start, end, text) {
+      this.startTime = start;
+      this.endTime = end;
+      this.text = text;
+    };
   });
 
   it('supports no cues', function() {
@@ -265,10 +266,10 @@ describe('VttTextParser', function() {
   it('supports align setting', function() {
     verifyHelper(
         [
-          {start: 20, end: 40, text: 'Test', align: 'middle'}
+          {start: 20, end: 40, text: 'Test', align: 'center'}
         ],
         'WEBVTT\n\n' +
-        '00:00:20.000 --> 00:00:40.000 align:middle\n' +
+        '00:00:20.000 --> 00:00:40.000 align:center\n' +
         'Test');
   });
 
@@ -279,13 +280,13 @@ describe('VttTextParser', function() {
             start: 20,
             end: 40,
             text: 'Test',
-            align: 'middle',
+            align: 'center',
             size: 56,
             vertical: 'lr'
           }
         ],
         'WEBVTT\n\n' +
-        '00:00:20.000 --> 00:00:40.000 align:middle size:56% vertical:lr\n' +
+        '00:00:20.000 --> 00:00:40.000 align:center size:56% vertical:lr\n' +
         'Test');
   });
 
@@ -296,13 +297,13 @@ describe('VttTextParser', function() {
             start: 20,
             end: 40,
             text: 'Test',
-            align: 'middle',
+            align: 'center',
             size: 56,
             vertical: 'lr'
           }
         ],
         'WEBVTT\n\n' +
-        '0:00:20.000 --> 00:00:40.000 align:middle size:56% vertical:lr\n' +
+        '0:00:20.000 --> 00:00:40.000 align:center size:56% vertical:lr\n' +
         'Test');
   });
 
@@ -313,13 +314,13 @@ describe('VttTextParser', function() {
             start: 20,
             end: 40,
             text: 'Test',
-            align: 'middle',
+            align: 'center',
             size: 56,
             vertical: 'lr'
           }
         ],
         'WEBVTT\n\n' +
-        '00:00:20.000 --> 0:00:40.000 align:middle size:56% vertical:lr\n' +
+        '00:00:20.000 --> 0:00:40.000 align:center size:56% vertical:lr\n' +
         'Test');
   });
 
@@ -330,45 +331,114 @@ describe('VttTextParser', function() {
             start: 20,
             end: 40,
             text: 'Test',
-            align: 'middle',
+            align: 'center',
             size: 56,
             vertical: 'lr'
           }
         ],
         'WEBVTT\n\n' +
-        '0:00:20.000 --> 0:00:40.000 align:middle size:56% vertical:lr\n' +
+        '0:00:20.000 --> 0:00:40.000 align:center size:56% vertical:lr\n' +
         'Test');
   });
 
-  it('rejects invalid settings', function() {
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 vertical:es\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 vertical:\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 vertical\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 line:-3%\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 line:105%\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 line:45%%\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 align:10\nTest');
-    errorHelper(shaka.util.Error.Code.INVALID_TEXT_SETTINGS,
-                'WEBVTT\n\n00:00.000 --> 00:00.010 align:foo\nTest');
+  it('uses relative timestamps if configured to', function() {
+    verifyHelper(
+        [
+          {
+            start: 40, // Note these are 20s off of the cue
+            end: 60,   // because using relative timestamps
+            text: 'Test',
+            align: 'center',
+            size: 56,
+            vertical: 'lr'
+          }
+        ],
+        'WEBVTT\n\n' +
+        '0:00:20.000 --> 0:00:40.000 align:center size:56% vertical:lr\n' +
+        'Test',
+        undefined,
+        20,
+        true);
   });
 
+  it('ignores and logs invalid settings', function() {
+    expect(logWarningSpy.calls.count()).toBe(0);
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 vertical:es\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 vertical:\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 vertical\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 line:-3%\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 line:45%%\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 align:10\n' +
+        'Test\n\n');
+
+    verifyHelper(
+        [
+          {start: 20, end: 40, text: 'Test'}
+        ],
+        'WEBVTT\n\n' +
+        '00:00:20.000 --> 00:00:40.000 align:foo\n' +
+        'Test\n\n');
+
+    expect(logWarningSpy.calls.count()).toBe(7);
+  });
 
   /**
    * @param {!Array} cues
    * @param {string} text
    * @param {number=} opt_offset
+   * @param {number=} opt_startTime
+   * @param {boolean=} opt_useRelativeCueTimestamps
    */
-  function verifyHelper(cues, text, opt_offset) {
+  function verifyHelper(cues, text, opt_offset,
+                        opt_startTime, opt_useRelativeCueTimestamps) {
     var data = shaka.util.StringUtils.toUTF8(text);
-    // Last two parameters are only used by mp4 vtt parser.
-    var result = shaka.media.VttTextParser(data, opt_offset || 0, null, null);
+    var result =
+        shaka.media.VttTextParser(data,
+                                  opt_offset || 0,
+                                  opt_startTime || 0,
+                                  null,
+                                  opt_useRelativeCueTimestamps || false);
     expect(result).toBeTruthy();
     expect(result.length).toBe(cues.length);
     for (var i = 0; i < cues.length; i++) {
@@ -399,7 +469,7 @@ describe('VttTextParser', function() {
     var error = new shaka.util.Error(shaka.util.Error.Category.TEXT, code);
     var data = shaka.util.StringUtils.toUTF8(text);
     try {
-      shaka.media.VttTextParser(data, 0, null, null);
+      shaka.media.VttTextParser(data, 0, null, null, false);
       fail('Invalid WebVTT file supported');
     } catch (e) {
       shaka.test.Util.expectToEqualError(e, error);

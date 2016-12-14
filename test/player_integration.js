@@ -44,7 +44,7 @@ describe('Player', function() {
     Feature = window.shakaAssets.Feature;
 
     var loaded = window.shaka.util.PublicPromise();
-    if (window.shaka.test.Util.getClientArg('uncompiled')) {
+    if (getClientArg('uncompiled')) {
       // For debugging purposes, use the uncompiled library.
       shaka = window.shaka;
       loaded.resolve();
@@ -162,7 +162,7 @@ describe('Player', function() {
 
       var wit = asset.focus ? fit : it;
       wit(testName, function(done) {
-        if (!window.shaka.test.Util.getClientArg('external')) {
+        if (!getClientArg('external')) {
           pending('Skipping tests that use external assets.');
         }
 
@@ -193,8 +193,7 @@ describe('Player', function() {
           config.manifest.dash.customScheme = asset.drmCallback;
         if (asset.clearKeys)
           config.drm.clearKeys = asset.clearKeys;
-        player.configure(/** @type {shakaExtern.PlayerConfiguration} */(
-            config));
+        player.configure(config);
 
         if (asset.licenseRequestHeaders) {
           player.getNetworkingEngine().registerRequestFilter(

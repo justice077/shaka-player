@@ -106,6 +106,7 @@ describe('DrmEngine', function() {
         fakeNetEngine, onErrorSpy, onKeyStatusSpy);
     config = {
       retryParameters: retryParameters,
+      delayLicenseRequestUntilPlayed: false,
       servers: {
         'drm.abc': 'http://abc.drm/license',
         'drm.def': 'http://def.drm/license'
@@ -920,51 +921,6 @@ describe('DrmEngine', function() {
         }).catch(fail);
       });
 
-      it('internal-error key status causes an INTERNAL_ERROR_KEY_STATUS error',
-         function(done) {
-           onErrorSpy.and.stub();
-
-           initAndAttach().then(function() {
-             expect(onErrorSpy).not.toHaveBeenCalled();
-
-             var initData = new Uint8Array(0);
-             mockVideo.on['encrypted'](
-                 { initDataType: 'webm', initData: initData });
-
-             var keyId1 = (new Uint8Array(1)).buffer;
-             var keyId2 = (new Uint8Array(2)).buffer;
-             var keyId3 = (new Uint8Array(3)).buffer;
-
-             session1.keyStatuses.forEach.and.callFake(function(callback) {
-               callback(keyId1, 'internal-error');
-               callback(keyId2, 'internal-error');
-               callback(keyId3, 'usable');
-             });
-
-             onKeyStatusSpy.and.callFake(function(statusMap) {
-               expect(onErrorSpy).toHaveBeenCalled();
-               // There should be as many errors as the key ids
-               // with 'internal-error' status. Two in this case
-               expect(onErrorSpy.calls.count()).toEqual(2);
-               var errorKey1 = onErrorSpy.calls.argsFor(0)[0];
-               shaka.test.Util.expectToEqualError(
-                   errorKey1, new shaka.util.Error(
-                   shaka.util.Error.Category.DRM,
-                   shaka.util.Error.Code.INTERNAL_ERROR_KEY_STATUS,
-                   shaka.util.Uint8ArrayUtils.toHex(new Uint8Array(keyId1))));
-               var errorKey2 = onErrorSpy.calls.argsFor(1)[0];
-               shaka.test.Util.expectToEqualError(
-                   errorKey2, new shaka.util.Error(
-                   shaka.util.Error.Category.DRM,
-                   shaka.util.Error.Code.INTERNAL_ERROR_KEY_STATUS,
-                   shaka.util.Uint8ArrayUtils.toHex(new Uint8Array(keyId2))));
-               done();
-             });
-
-             session1.on['keystatuseschange']({ target: session1 });
-           }).catch(fail);
-         });
-
       it('causes only one error when two keys expire at once', function(done) {
         onErrorSpy.and.stub();
 
@@ -1440,6 +1396,9 @@ describe('DrmEngine', function() {
           fakeRequestMediaKeySystemAccess.bind(null, ['drm.abc']));
       // Both audio and video with the same key system now:
       manifest.periods[0].streamSets[1].drmInfos[0].keySystem = 'drm.abc';
+      // Key IDs in manifest
+      manifest.periods[0].streamSets[1].drmInfos[0].keyIds[0] =
+          'deadbeefdeadbeefdeadbeefdeadbeef';
 
       config.advanced['drm.abc'] = {
         audioRobustness: 'good',
@@ -1460,11 +1419,84 @@ describe('DrmEngine', function() {
           audioRobustness: 'good',
           videoRobustness: 'really_really_ridiculously_good',
           serverCertificate: undefined,
-          initData: []
+          initData: [],
+          keyIds: ['deadbeefdeadbeefdeadbeefdeadbeef']
         });
       }).catch(fail).then(done);
     });
   });  // describe('getDrmInfo')
+
+  describe('configure', function() {
+    it('delays initial license requests if configured to', function(done) {
+      config.delayLicenseRequestUntilPlayed = true;
+      drmEngine.configure(config);
+      mockVideo.paused = true;
+
+      initAndAttach().then(function() {
+        var initData = new Uint8Array(0);
+        mockVideo.on['encrypted'](
+            { initDataType: 'webm', initData: initData });
+
+        fakeNetEngine.request.and.returnValue(new shaka.util.PublicPromise());
+        var message = new Uint8Array(0);
+        session1.on['message']({ message: message });
+
+        expect(fakeNetEngine.request).not.toHaveBeenCalled();
+
+        mockVideo.on['play']();
+
+        expect(fakeNetEngine.request).toHaveBeenCalledWith(
+            shaka.net.NetworkingEngine.RequestType.LICENSE,
+            jasmine.objectContaining({
+              uris: ['http://abc.drm/license'],
+              method: 'POST',
+              body: message
+            }));
+      }).catch(fail).then(done);
+    });
+
+    it('does not delay license renewal requests', function(done) {
+      config.delayLicenseRequestUntilPlayed = true;
+      drmEngine.configure(config);
+      mockVideo.paused = true;
+
+      initAndAttach().then(function() {
+        var initData = new Uint8Array(0);
+        mockVideo.on['encrypted'](
+            { initDataType: 'webm', initData: initData });
+
+        fakeNetEngine.request.and.returnValue(new shaka.util.PublicPromise());
+        var message = new Uint8Array(0);
+        session1.on['message']({ message: message });
+
+        expect(fakeNetEngine.request).not.toHaveBeenCalled();
+
+        mockVideo.on['play']();
+
+        expect(fakeNetEngine.request).toHaveBeenCalledWith(
+            shaka.net.NetworkingEngine.RequestType.LICENSE,
+            jasmine.objectContaining({
+              uris: ['http://abc.drm/license'],
+              method: 'POST',
+              body: message
+            }));
+
+        fakeNetEngine.request.calls.reset();
+
+        mockVideo.paused = true;
+        session1.on['message']({ message: message });
+
+        expect(fakeNetEngine.request).toHaveBeenCalledWith(
+            shaka.net.NetworkingEngine.RequestType.LICENSE,
+            jasmine.objectContaining({
+              uris: ['http://abc.drm/license'],
+              method: 'POST',
+              body: message
+            }));
+        expect(fakeNetEngine.request.calls.count()).toBe(1);
+      }).catch(fail).then(done);
+    });
+  }); // describe('configure')
 
   function initAndAttach() {
     return drmEngine.init(manifest, /* offline */ false).then(function() {

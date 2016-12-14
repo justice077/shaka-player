@@ -76,13 +76,11 @@ describe('Player', function() {
       };
     }
 
-    video = createMockVideo();
+    video = createMockVideo(20);
     player = new shaka.Player(video, dependencyInjector);
 
     abrManager = new shaka.test.FakeAbrManager();
-    player.configure(
-        /** @type {shakaExtern.PlayerConfiguration} */ (
-            {abr: {manager: abrManager}}));
+    player.configure({abr: {manager: abrManager}});
   });
 
   afterEach(function(done) {
@@ -653,13 +651,17 @@ describe('Player', function() {
             .addStream(2).bandwidth(100)
           .addStreamSet('video')
             .addStream(4).bandwidth(100).size(100, 200)
-            .addStream(5).bandwidth(200).size(200, 400)
+            .frameRate(1000000 / 42000)
+            .addStream(5).bandwidth(200).size(200, 400).frameRate(24)
           .addStreamSet('text')
             .language('es')
             .addStream(6).bandwidth(100).kind('caption')
+                         .mime('text/vtt')
           .addStreamSet('text')
             .language('en')
             .addStream(7).bandwidth(100).kind('caption')
+                         .mime('application/ttml+xml')
+          // Both text tracks should remain, even with different MIME types.
         .build();
 
       tracks = [
@@ -671,7 +673,9 @@ describe('Player', function() {
           language: 'en',
           kind: null,
           width: null,
-          height: null
+          height: null,
+          frameRate: undefined,
+          codecs: 'mp4a.40.2'
         },
         {
           id: 2,
@@ -681,7 +685,9 @@ describe('Player', function() {
           language: 'en',
           kind: null,
           width: null,
-          height: null
+          height: null,
+          frameRate: undefined,
+          codecs: 'mp4a.40.2'
         },
         {
           id: 4,
@@ -691,7 +697,9 @@ describe('Player', function() {
           language: 'und',
           kind: null,
           width: 100,
-          height: 200
+          height: 200,
+          frameRate: 1000000 / 42000,
+          codecs: 'avc1.4d401f'
         },
         {
           id: 5,
@@ -701,7 +709,9 @@ describe('Player', function() {
           language: 'und',
           kind: null,
           width: 200,
-          height: 400
+          height: 400,
+          frameRate: 24,
+          codecs: 'avc1.4d401f'
         },
         {
           id: 6,
@@ -711,7 +721,9 @@ describe('Player', function() {
           language: 'es',
           kind: 'caption',
           width: null,
-          height: null
+          height: null,
+          frameRate: undefined,
+          codecs: null
         },
         {
           id: 7,
@@ -721,7 +733,9 @@ describe('Player', function() {
           language: 'en',
           kind: 'caption',
           width: null,
-          height: null
+          height: null,
+          frameRate: undefined,
+          codecs: null
         }
       ];
     });
@@ -778,7 +792,7 @@ describe('Player', function() {
       expect(tracks[1].id).toBe(stream.id);
       player.selectTrack(tracks[1]);
       expect(streamingEngine.switch)
-          .toHaveBeenCalledWith('audio', stream, undefined);
+          .toHaveBeenCalledWith('audio', stream, false);
     });
 
     it('still switches streams if called during startup', function() {
@@ -803,7 +817,7 @@ describe('Player', function() {
       var period = manifest.periods[0];
       var stream = period.streamSets[0].streams[1];
       expect(streamingEngine.switch)
-          .toHaveBeenCalledWith('audio', stream, undefined);
+          .toHaveBeenCalledWith('audio', stream, false);
     });
 
     it('switching audio doesn\'t change selected text track', function() {
@@ -820,7 +834,7 @@ describe('Player', function() {
       var textStream = period.streamSets[3].streams[0];
 
       expect(streamingEngine.switch)
-          .toHaveBeenCalledWith('text', textStream, 0);
+          .toHaveBeenCalledWith('text', textStream, true);
 
       streamingEngine.switch.calls.reset();
 
@@ -828,9 +842,9 @@ describe('Player', function() {
       expect(tracks[1].id).toBe(audioStream.id);
       player.selectTrack(tracks[1]);
       expect(streamingEngine.switch)
-          .toHaveBeenCalledWith('text', textStream, 0);
+          .toHaveBeenCalledWith('text', textStream, true);
       expect(streamingEngine.switch)
-          .toHaveBeenCalledWith('audio', audioStream, undefined);
+          .toHaveBeenCalledWith('audio', audioStream, false);
     });
   });
 
@@ -1182,7 +1196,7 @@ describe('Player', function() {
       expect(activeVideo.id).toBe(5);
     });
 
-    it('switches if active is restricted by key status', function() {
+    it('switches if active key status is "output-restricted"', function() {
       var activeVideo = getActiveTrack('video');
       expect(activeVideo.id).toBe(4);
 
@@ -1200,10 +1214,38 @@ describe('Player', function() {
       expect(activeVideo.id).toBe(5);
     });
 
-    it('removes based on key status', function() {
+    it('switches if active key status is "internal-error"', function() {
+      var activeVideo = getActiveTrack('video');
+      expect(activeVideo.id).toBe(4);
+
+      // AbrManager should choose the second track since the first is
+      // restricted.
+      abrManager.chooseIndex = 1;
+      abrManager.chooseStreams.calls.reset();
+      onKeyStatus({'abc': 'internal-error'});
+      expect(abrManager.chooseStreams).toHaveBeenCalled();
+      expect(manifest.periods[0].streamSets[1].streams[0].id).toBe(4);
+      expect(manifest.periods[0].streamSets[1].streams[0].allowedByKeySystem)
+          .toBe(false);
+
+      activeVideo = getActiveTrack('video');
+      expect(activeVideo.id).toBe(5);
+    });
+
+    it('removes if key status is "output-restricted"', function() {
       expect(player.getTracks().length).toBe(9);
 
       onKeyStatus({'abc': 'output-restricted'});
+
+      var tracks = player.getTracks();
+      expect(tracks.length).toBe(8);
+      expectDoesNotInclude(tracks, 4);
+    });
+
+    it('removes if key status is "internal-error"', function() {
+      expect(player.getTracks().length).toBe(9);
+
+      onKeyStatus({'abc': 'internal-error'});
 
       var tracks = player.getTracks();
       expect(tracks.length).toBe(8);
@@ -1302,6 +1344,40 @@ describe('Player', function() {
     function onKeyStatus(keyStatusMap) {
       player.onKeyStatus_(keyStatusMap);
     }
+  });
+
+  describe('getPlayheadTimeAsDate()', function() {
+    beforeEach(function(done) {
+      var timeline = new shaka.media.PresentationTimeline(300, 0);
+      timeline.setStatic(false);
+      manifest = new shaka.test.ManifestGenerator()
+                      .setTimeline(timeline)
+                      .addPeriod(0)
+                      .build();
+      goog.asserts.assert(manifest, 'manifest must be non-null');
+      var parser = new shaka.test.FakeManifestParser(manifest);
+      var factory = function() { return parser; };
+      player.load('', 0, factory).catch(fail).then(done);
+    });
+
+    it('gets current wall clock time in UTC', function() {
+      var liveTimeUtc = player.getPlayheadTimeAsDate();
+      expect(liveTimeUtc).toEqual(new Date(320000));
+    });
+  });
+
+  it('rejects empty manifests', function(done) {
+    var emptyManifest = new shaka.test.ManifestGenerator().build();
+    var emptyParser = new shaka.test.FakeManifestParser(emptyManifest);
+    var emptyFactory = function() { return emptyParser; };
+
+    player.load('', 0, emptyFactory).then(fail).catch(function(error) {
+      shaka.test.Util.expectToEqualError(
+          error,
+          new shaka.util.Error(
+              shaka.util.Error.Category.MANIFEST,
+              shaka.util.Error.Code.NO_PERIODS));
+    }).then(done);
   });
 
   /**

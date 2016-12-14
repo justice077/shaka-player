@@ -57,6 +57,18 @@ shaka.test.ManifestGenerator.prototype.build = function() {
 
 
 /**
+ * Sets a specified presentation timeline.
+ *
+ * @param {!shaka.media.PresentationTimeline} timeline
+ * @return {!shaka.test.ManifestGenerator}
+ */
+shaka.test.ManifestGenerator.prototype.setTimeline = function(timeline) {
+  this.manifest_.presentationTimeline = timeline;
+  return this;
+};
+
+
+/**
  * Sets the duration of the presentation timeline.
  *
  * @param {number} duration
@@ -166,7 +178,8 @@ shaka.test.ManifestGenerator.prototype.addDrmInfo = function(keySystem) {
     audioRobustness: '',
     videoRobustness: '',
     serverCertificate: null,
-    initData: null
+    initData: null,
+    keyIds: []
   });
   return this;
 };
@@ -280,6 +293,20 @@ shaka.test.ManifestGenerator.prototype.addCencInitData = function(base64) {
 shaka.test.ManifestGenerator.prototype.addStream = function(id) {
   this.finishPartialStream_();
   var streamSet = this.currentStreamSet_();
+
+  var defaultMimeType = 'text/plain';
+  var defaultCodecs = '';
+
+  if (streamSet.type == 'audio') {
+    defaultMimeType = 'audio/mp4';
+    defaultCodecs = 'mp4a.40.2';
+  } else if (streamSet.type == 'video') {
+    defaultMimeType = 'video/mp4';
+    defaultCodecs = 'avc1.4d401f';
+  } else if (streamSet.type == 'text') {
+    defaultMimeType = 'text/vtt';
+  }
+
   /** @type {shakaExtern.Stream} */
   var stream = {
     id: id,
@@ -288,8 +315,9 @@ shaka.test.ManifestGenerator.prototype.addStream = function(id) {
     getSegmentReference: jasmine.createSpy('getSegmentReference'),
     initSegmentReference: null,
     presentationTimeOffset: 0,
-    mimeType: 'video/mp4',
-    codecs: 'avc1.4d401f',
+    mimeType: defaultMimeType,
+    codecs: defaultCodecs,
+    frameRate: undefined,
     bandwidth: 100,
     width: undefined,
     height: undefined,
@@ -508,6 +536,19 @@ shaka.test.ManifestGenerator.prototype.kind = function(kind) {
 shaka.test.ManifestGenerator.prototype.encrypted = function(encrypted) {
   var stream = this.currentStream_();
   stream.encrypted = encrypted;
+  return this;
+};
+
+
+/**
+ * Sets the framerate of the current stream.
+ *
+ * @param {number} frameRate
+ * @return {!shaka.test.ManifestGenerator}
+ */
+shaka.test.ManifestGenerator.prototype.frameRate = function(frameRate) {
+  var stream = this.currentStream_();
+  stream.frameRate = frameRate;
   return this;
 };
 
